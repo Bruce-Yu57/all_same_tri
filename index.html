@@ -1,0 +1,333 @@
+import React, { useState, useEffect, useCallback } from 'react';
+
+// --- 幾何繪圖輔助元件 ---
+
+// 繪製角度標記 (弧線或直角符號)
+const Arc = ({ p1, p2, p3, countOrType }) => {
+  if (countOrType === 'right') {
+    // 直角符號
+    const len1 = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    const len3 = Math.hypot(p3.x - p2.x, p3.y - p2.y);
+    const u1 = { x: (p1.x - p2.x) / len1, y: (p1.y - p2.y) / len1 };
+    const u3 = { x: (p3.x - p2.x) / len3, y: (p3.y - p2.y) / len3 };
+    const size = 16;
+    const pt1 = { x: p2.x + u1.x * size, y: p2.y + u1.y * size };
+    const pt2 = { x: pt1.x + u3.x * size, y: pt1.y + u3.y * size };
+    const pt3 = { x: p2.x + u3.x * size, y: p2.y + u3.y * size };
+    return <path d={`M ${pt1.x} ${pt1.y} L ${pt2.x} ${pt2.y} L ${pt3.x} ${pt3.y}`} fill="none" stroke="#EF4444" strokeWidth="2.5" />;
+  }
+
+  // 一般弧線
+  const a1 = Math.atan2(p1.y - p2.y, p1.x - p2.x);
+  const a2 = Math.atan2(p3.y - p2.y, p3.x - p2.x);
+  
+  let diff = a2 - a1;
+  while (diff <= -Math.PI) diff += 2 * Math.PI;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  const sweepFlag = diff > 0 ? 1 : 0;
+
+  const paths = [];
+  const baseR = 22;
+  for (let i = 0; i < countOrType; i++) {
+    const r = baseR + i * 7;
+    const x1 = p2.x + r * Math.cos(a1);
+    const y1 = p2.y + r * Math.sin(a1);
+    const x2 = p2.x + r * Math.cos(a2);
+    const y2 = p2.y + r * Math.sin(a2);
+    paths.push(
+      <path key={i} d={`M ${x1} ${y1} A ${r} ${r} 0 0 ${sweepFlag} ${x2} ${y2}`} fill="none" stroke="#EF4444" strokeWidth="2.5" />
+    );
+  }
+  return <g>{paths}</g>;
+};
+
+// 繪製邊長標記 (小短線)
+const Ticks = ({ p1, p2, count }) => {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy);
+  const ux = dx / len;
+  const uy = dy / len;
+  const nx = -uy;
+  const ny = ux;
+  const mx = (p1.x + p2.x) / 2;
+  const my = (p1.y + p2.y) / 2;
+  const tickLen = 8;
+  const spacing = 7;
+
+  const lines = [];
+  const startOffset = -((count - 1) * spacing) / 2;
+  for (let i = 0; i < count; i++) {
+    const offset = startOffset + i * spacing;
+    const cx = mx + ux * offset;
+    const cy = my + uy * offset;
+    lines.push(
+      <line key={i} x1={cx + nx * tickLen} y1={cy + ny * tickLen} x2={cx - nx * tickLen} y2={cy - ny * tickLen} stroke="#3B82F6" strokeWidth="3" />
+    );
+  }
+  return <g>{lines}</g>;
+};
+
+// --- 題目題庫與產生器 ---
+
+const generateBasicScenarios = () => [
+  { answer: 'SSS', marks: { sides: [['A','B', 1], ['D','E', 1], ['B','C', 2], ['E','F', 2], ['C','A', 3], ['F','D', 3]], angles: [] } },
+  { answer: 'SAS', marks: { sides: [['A','B', 1], ['D','E', 1], ['B','C', 2], ['E','F', 2]], angles: [['A','B','C', 1], ['D','E','F', 1]] } },
+  { answer: 'ASA', marks: { sides: [['A','B', 1], ['D','E', 1]], angles: [['C','A','B', 1], ['F','D','E', 1], ['A','B','C', 2], ['D','E','F', 2]] } },
+  { answer: 'AAS', marks: { sides: [['B','C', 1], ['E','F', 1]], angles: [['C','A','B', 1], ['F','D','E', 1], ['A','B','C', 2], ['D','E','F', 2]] } },
+  { answer: '不全等', marks: { sides: [['A','B', 1], ['D','E', 1], ['B','C', 2], ['E','F', 2]], angles: [['C','A','B', 1], ['F','D','E', 1]] } }, // SSA
+  { answer: '不全等', marks: { sides: [], angles: [['C','A','B', 1], ['F','D','E', 1], ['A','B','C', 2], ['D','E','F', 2], ['B','C','A', 3], ['E','F','D', 3]] } } // AAA
+];
+
+const basicTemplates = [
+  { // 平移
+    id: 'basic_shift',
+    pts: { A: {x: 50, y: 220}, B: {x: 180, y: 220}, C: {x: 100, y: 80}, D: {x: 270, y: 220}, E: {x: 400, y: 220}, F: {x: 320, y: 80} },
+    lines: [['A','B'], ['B','C'], ['C','A'], ['D','E'], ['E','F'], ['F','D']],
+    scenarios: generateBasicScenarios()
+  },
+  { // 水平鏡像
+    id: 'basic_mirror',
+    pts: { A: {x: 50, y: 220}, B: {x: 180, y: 220}, C: {x: 80, y: 80}, D: {x: 400, y: 220}, E: {x: 270, y: 220}, F: {x: 370, y: 80} },
+    lines: [['A','B'], ['B','C'], ['C','A'], ['D','E'], ['E','F'], ['F','D']],
+    scenarios: generateBasicScenarios()
+  },
+  { // 直角三角形 (包含 RHS)
+    id: 'basic_right',
+    pts: { A: {x: 60, y: 220}, B: {x: 180, y: 220}, C: {x: 60, y: 80}, D: {x: 380, y: 80}, E: {x: 260, y: 80}, F: {x: 380, y: 220} },
+    lines: [['A','B'], ['B','C'], ['C','A'], ['D','E'], ['E','F'], ['F','D']],
+    scenarios: [
+      { answer: 'RHS', marks: { sides: [['B','C', 1], ['E','F', 1], ['A','B', 2], ['D','E', 2]], angles: [['C','A','B', 'right'], ['F','D','E', 'right']] } },
+      { answer: 'SAS', marks: { sides: [['A','C', 1], ['D','F', 1], ['A','B', 2], ['D','E', 2]], angles: [['C','A','B', 'right'], ['F','D','E', 'right']] } },
+      { answer: 'ASA', marks: { sides: [['A','B', 1], ['D','E', 1]], angles: [['C','A','B', 'right'], ['F','D','E', 'right'], ['A','B','C', 1], ['D','E','F', 1]] } },
+      { answer: '不全等', marks: { sides: [['B','C', 1], ['E','F', 1], ['A','C', 2], ['D','F', 2]], angles: [['A','B','C', 1], ['D','E','F', 1]] } }
+    ]
+  }
+];
+
+const advancedTemplates = [
+  { // 蝴蝶結 (對頂角)
+    id: 'bowtie',
+    pts: { A: {x: 80, y: 60}, B: {x: 370, y: 60}, C: {x: 80, y: 240}, D: {x: 370, y: 240}, M: {x: 225, y: 150} },
+    lines: [['A', 'D'], ['B', 'C'], ['A', 'B'], ['C', 'D']],
+    scenarios: [
+      { answer: 'SAS', marks: { sides: [['A','M', 1], ['D','M', 1], ['B','M', 2], ['C','M', 2]], angles: [['A','M','B', 1], ['D','M','C', 1]] } },
+      { answer: 'ASA', marks: { sides: [['A','M', 1], ['D','M', 1]], angles: [['M','A','B', 1], ['M','D','C', 1], ['A','M','B', 2], ['D','M','C', 2]] } },
+      { answer: 'AAS', marks: { sides: [['A','B', 1], ['C','D', 1]], angles: [['M','A','B', 1], ['M','D','C', 1], ['A','M','B', 2], ['D','M','C', 2]] } },
+      { answer: '不全等', marks: { sides: [['A','B', 1], ['C','D', 1]], angles: [['M','A','B', 1], ['M','D','C', 1]] } }
+    ]
+  },
+  { // 鳶形 (共用邊)
+    id: 'kite',
+    pts: { A: {x: 225, y: 30}, B: {x: 100, y: 150}, C: {x: 225, y: 270}, D: {x: 350, y: 150} },
+    lines: [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A'], ['B', 'D']],
+    scenarios: [
+      { answer: 'SSS', marks: { sides: [['A','B', 1], ['C','B', 1], ['A','D', 2], ['C','D', 2], ['B','D', 3]], angles: [] } },
+      { answer: 'SAS', marks: { sides: [['A','B', 1], ['C','B', 1], ['B','D', 2]], angles: [['A','B','D', 1], ['C','B','D', 1]] } },
+      { answer: 'ASA', marks: { sides: [['B','D', 1]], angles: [['A','B','D', 1], ['C','B','D', 1], ['A','D','B', 2], ['C','D','B', 2]] } },
+      { answer: '不全等', marks: { sides: [['A','B', 1], ['C','B', 1]], angles: [['A','D','B', 1], ['C','D','B', 1]] } }
+    ]
+  },
+  { // 平行四邊形 (共用邊與內錯角)
+    id: 'parallelogram',
+    pts: { A: {x: 100, y: 60}, B: {x: 350, y: 60}, C: {x: 270, y: 240}, D: {x: 20, y: 240} },
+    lines: [['A', 'B'], ['B', 'C'], ['C', 'D'], ['D', 'A'], ['B', 'D']],
+    scenarios: [
+      { answer: 'SSS', marks: { sides: [['A','B', 1], ['C','D', 1], ['A','D', 2], ['B','C', 2], ['B','D', 3]], angles: [] } },
+      { answer: 'ASA', marks: { sides: [['B','D', 1]], angles: [['A','B','D', 1], ['C','D','B', 1], ['A','D','B', 2], ['C','B','D', 2]] } },
+      { answer: 'SAS', marks: { sides: [['A','B', 1], ['C','D', 1], ['B','D', 2]], angles: [['A','B','D', 1], ['C','D','B', 1]] } },
+      { answer: '不全等', marks: { sides: [['A','D', 1], ['B','C', 1]], angles: [['A','B','D', 1], ['C','D','B', 1]] } }
+    ]
+  }
+];
+
+export default function App() {
+  const [score, setScore] = useState(0);
+  const [level, setLevel] = useState('basic');
+  const [question, setQuestion] = useState(null);
+  const [selectedOpt, setSelectedOpt] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [attempts, setAttempts] = useState(0);
+
+  const OPTIONS = ['SSS', 'SAS', 'ASA', 'AAS', 'RHS', '不全等'];
+
+  const generateQuestion = useCallback((targetLevel) => {
+    const templates = targetLevel === 'basic' ? basicTemplates : advancedTemplates;
+    const template = templates[Math.floor(Math.random() * templates.length)];
+    const scenario = template.scenarios[Math.floor(Math.random() * template.scenarios.length)];
+    
+    setQuestion({
+      ...template,
+      ...scenario
+    });
+    setSelectedOpt(null);
+    setFeedback(null);
+    setAttempts(0);
+  }, []);
+
+  // 初始載入
+  useEffect(() => {
+    generateQuestion(level);
+  }, [level, generateQuestion]);
+
+  const handleSubmit = () => {
+    if (!selectedOpt || feedback?.isCorrect) return;
+
+    if (selectedOpt === question.answer) {
+      setFeedback({ isCorrect: true, message: '答對了！非常棒！' });
+      if (attempts === 0) {
+        setScore(s => s + 10);
+      }
+    } else {
+      setFeedback({ isCorrect: false, message: '不太對喔，請觀察標示的邊長和角度再試試看。' });
+    }
+    setAttempts(a => a + 1);
+  };
+
+  const handleNext = () => {
+    generateQuestion(level);
+  };
+
+  const handleLevelChange = (newLevel) => {
+    if (level !== newLevel) {
+      setLevel(newLevel);
+    }
+  };
+
+  if (!question) return <div className="p-8 text-center text-xl">載入中...</div>;
+
+  return (
+    <div className="min-h-screen bg-slate-100 font-sans touch-manipulation pb-10">
+      {/* 頂部導覽與分數 */}
+      <header className="bg-blue-600 text-white p-4 shadow-md flex justify-between items-center sticky top-0 z-10">
+        <h1 className="text-2xl font-bold tracking-wide">全等三角形挑戰</h1>
+        <div className="text-xl font-bold bg-blue-800 px-4 py-2 rounded-full shadow-inner">
+          得分: <span className="text-yellow-300">{score}</span>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto mt-6 px-4">
+        {/* 難度選擇 */}
+        <div className="flex justify-center mb-6">
+          <div className="bg-white rounded-xl shadow-sm p-1 inline-flex">
+            <button 
+              onClick={() => handleLevelChange('basic')}
+              className={`px-6 py-3 rounded-lg text-lg font-medium transition-colors ${level === 'basic' ? 'bg-blue-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              基礎級 (獨立圖形)
+            </button>
+            <button 
+              onClick={() => handleLevelChange('advanced')}
+              className={`px-6 py-3 rounded-lg text-lg font-medium transition-colors ${level === 'advanced' ? 'bg-indigo-500 text-white shadow' : 'text-slate-600 hover:bg-slate-50'}`}
+            >
+              進階級 (複雜圖形)
+            </button>
+          </div>
+        </div>
+
+        {/* 題目區 */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+          <h2 className="text-2xl font-semibold text-slate-800 text-center mb-6">
+            根據圖形上的標示，判斷這兩個三角形是否全等？
+          </h2>
+          
+          <div className="flex justify-center bg-slate-50 rounded-xl overflow-hidden border border-slate-200">
+            <svg viewBox="0 0 450 300" className="w-full max-w-2xl h-auto" style={{ maxHeight: '350px' }}>
+              {/* 繪製線段 */}
+              {question.lines.map(([pt1, pt2], idx) => (
+                <line 
+                  key={`line-${idx}`} 
+                  x1={question.pts[pt1].x} y1={question.pts[pt1].y} 
+                  x2={question.pts[pt2].x} y2={question.pts[pt2].y} 
+                  stroke="#1E293B" strokeWidth="2.5" 
+                />
+              ))}
+
+              {/* 繪製邊長標記 (Ticks) */}
+              {question.marks.sides.map(([pt1, pt2, count], idx) => (
+                <Ticks key={`tick-${idx}`} p1={question.pts[pt1]} p2={question.pts[pt2]} count={count} />
+              ))}
+
+              {/* 繪製角度標記 (Arcs) */}
+              {question.marks.angles.map(([pt1, pt2, pt3, countOrType], idx) => (
+                <Arc key={`arc-${idx}`} p1={question.pts[pt1]} p2={question.pts[pt2]} p3={question.pts[pt3]} countOrType={countOrType} />
+              ))}
+
+              {/* 繪製頂點標籤 */}
+              {Object.entries(question.pts).map(([label, pt]) => {
+                // 簡單計算標籤偏移以避免擋到圖形
+                const dy = pt.y < 120 ? -12 : 24;
+                const dx = pt.x < 100 ? -15 : (pt.x > 350 ? 15 : 0);
+                return (
+                  <text 
+                    key={label} 
+                    x={pt.x + dx} y={pt.y + dy} 
+                    fontSize="22" 
+                    fontWeight="bold" 
+                    fill="#475569" 
+                    textAnchor="middle"
+                  >
+                    {label}
+                  </text>
+                );
+              })}
+            </svg>
+          </div>
+        </div>
+
+        {/* 選項區 */}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          {OPTIONS.map(opt => (
+            <button
+              key={opt}
+              onClick={() => {
+                if (!feedback?.isCorrect) {
+                  setSelectedOpt(opt);
+                  if (feedback) setFeedback(null); // 清除錯誤訊息以便重新選擇
+                }
+              }}
+              disabled={feedback?.isCorrect}
+              className={`p-4 text-xl font-bold rounded-xl border-2 transition-all transform active:scale-95 ${
+                selectedOpt === opt 
+                  ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' 
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-slate-50'
+              } ${feedback?.isCorrect && selectedOpt === opt ? 'border-green-500 bg-green-50 text-green-700' : ''}`}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+
+        {/* 控制與回饋區 */}
+        <div className="flex flex-col items-center space-y-4">
+          {feedback && (
+            <div className={`text-xl font-bold px-6 py-3 rounded-lg w-full text-center ${feedback.isCorrect ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {feedback.message}
+            </div>
+          )}
+
+          {!feedback?.isCorrect ? (
+            <button 
+              onClick={handleSubmit}
+              disabled={!selectedOpt}
+              className={`w-full md:w-auto px-12 py-4 text-2xl font-bold rounded-xl shadow-lg transition-all ${
+                selectedOpt 
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white transform active:scale-95' 
+                  : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              }`}
+            >
+              送出答案
+            </button>
+          ) : (
+            <button 
+              onClick={handleNext}
+              className="w-full md:w-auto px-12 py-4 text-2xl font-bold bg-green-500 hover:bg-green-600 text-white rounded-xl shadow-lg transform active:scale-95 animate-bounce"
+            >
+              下一題
+            </button>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
